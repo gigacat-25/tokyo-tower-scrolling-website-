@@ -24,22 +24,107 @@ export default function App() {
   const targetFrameRef = useRef(0);
   const containerRef = useRef(null);
 
-  // Monitor scroll for text highlight and metadata reveal (window scroll for reliability)
+  // Monitor scroll progress globally (window scroll for reliability)
   const { scrollYProgress } = useScroll();
 
-  // Transform scroll progress for Section 3 horizontal Japanese text slide
-  const xTextSlide = useTransform(scrollYProgress, [0.25, 0.5], ['30vw', '-80vw']);
-  // Transform scroll progress for Section 5 observational depth scaling
-  const textScale = useTransform(scrollYProgress, [0.6, 0.78], [1, 1.25]);
+  // Non-linear scroll-to-frame mapping function (stepped plateaus)
+  const mapScrollToFrame = (progress) => {
+    const keyframes = [
+      [0.00, 0],
+      [0.10, 30],
+      
+      // Section 2: Intro (Plateau around frame 60)
+      [0.14, 60],
+      [0.23, 62], // Almost paused
+      
+      // Transition to Section 3
+      [0.28, 120],
+      
+      // Section 3: Story (Plateau around frame 120)
+      [0.41, 122], // Almost paused
+      
+      // Transition to Section 4
+      [0.46, 180],
+      
+      // Section 4: Structure (Plateau around frame 180)
+      [0.59, 182], // Almost paused
+      
+      // Transition to Section 5
+      [0.64, 220],
+      
+      // Section 5: Observation (Plateau around frame 220)
+      [0.77, 222], // Almost paused
+      
+      // Transition to Section 6
+      [0.82, 260],
+      
+      // Section 6: Illumination (Plateau around frame 260)
+      [0.88, 262], // Almost paused
+      
+      // Transition to Finale
+      [0.94, 299],
+      [1.00, 299]
+    ];
+
+    for (let i = 0; i < keyframes.length - 1; i++) {
+      const [p1, f1] = keyframes[i];
+      const [p2, f2] = keyframes[i+1];
+      
+      if (progress >= p1 && progress <= p2) {
+        const range = p2 - p1;
+        const progressInRange = (progress - p1) / (range || 1);
+        return f1 + progressInRange * (f2 - f1);
+      }
+    }
+    return 299;
+  };
+
+  // Section highlight navigation mapping
+  const getActiveSectionIndex = (progress) => {
+    if (progress < 0.10) return 0;
+    if (progress < 0.28) return 1;
+    if (progress < 0.46) return 2;
+    if (progress < 0.64) return 3;
+    if (progress < 0.82) return 4;
+    if (progress < 0.90) return 5;
+    return 6;
+  };
+
+  // Target scroll values corresponding to active plateaus for side navigation
+  const SECTION_TARGETS = [0.00, 0.18, 0.37, 0.55, 0.73, 0.86, 0.98];
+
+  // Set up Framer Motion transforms mapped to the global scroll progress
+  
+  // Section 2: Intro
+  const sec2Opacity = useTransform(scrollYProgress, [0.10, 0.14, 0.23, 0.28], [0, 1, 1, 0]);
+  const sec2Y = useTransform(scrollYProgress, [0.10, 0.14, 0.23, 0.28], [60, 0, 0, -60]);
+
+  // Section 3: Story
+  const sec3Opacity = useTransform(scrollYProgress, [0.28, 0.32, 0.41, 0.46], [0, 1, 1, 0]);
+  const sec3Y = useTransform(scrollYProgress, [0.28, 0.32, 0.41, 0.46], [60, 0, 0, -60]);
+  const xTextSlide = useTransform(scrollYProgress, [0.28, 0.46], ['40vw', '-90vw']);
+
+  // Section 4: Structure
+  const sec4Opacity = useTransform(scrollYProgress, [0.46, 0.50, 0.59, 0.64], [0, 1, 1, 0]);
+  const sec4Y = useTransform(scrollYProgress, [0.46, 0.50, 0.59, 0.64], [60, 0, 0, -60]);
+
+  // Section 5: Observation
+  const sec5Opacity = useTransform(scrollYProgress, [0.64, 0.68, 0.77, 0.82], [0, 1, 1, 0]);
+  const sec5Y = useTransform(scrollYProgress, [0.64, 0.68, 0.77, 0.82], [60, 0, 0, -60]);
+  const textScale = useTransform(scrollYProgress, [0.64, 0.77], [0.95, 1.15]);
+
+  // Section 6: Illumination
+  const sec6Opacity = useTransform(scrollYProgress, [0.82, 0.84, 0.88, 0.92], [0, 1, 1, 0]);
+  const sec6Y = useTransform(scrollYProgress, [0.82, 0.84, 0.88, 0.92], [60, 0, 0, -60]);
+
+  // Section 7: Finale
+  const sec7Opacity = useTransform(scrollYProgress, [0.92, 0.96], [0, 1]);
+  const sec7Y = useTransform(scrollYProgress, [0.92, 0.96], [40, 0]);
 
   // Track active section based on scroll progress
   useEffect(() => {
     return scrollYProgress.onChange((latest) => {
-      const index = Math.min(
-        SECTIONS.length - 1,
-        Math.floor(latest * SECTIONS.length)
-      );
-      setActiveSection(index);
+      setActiveSection(getActiveSectionIndex(latest));
       setHasScrolled(latest > 0.02);
     });
   }, [scrollYProgress]);
@@ -143,7 +228,7 @@ export default function App() {
     const renderLoop = () => {
       // Get the latest scroll progress directly from Framer Motion's optimized hook
       const scrollPercent = scrollYProgress.get();
-      targetFrameRef.current = scrollPercent * 299;
+      targetFrameRef.current = mapScrollToFrame(scrollPercent);
 
       const diff = targetFrameRef.current - currentFrameRef.current;
       if (Math.abs(diff) < 0.01) {
@@ -271,8 +356,9 @@ export default function App() {
               <div
                 key={sec.id}
                 onClick={() => {
-                  const targetScroll = (idx / (SECTIONS.length - 1)) * (document.documentElement.scrollHeight - window.innerHeight);
-                  window.scrollTo({ top: targetScroll, behavior: 'smooth' });
+                  const targetPercent = SECTION_TARGETS[idx];
+                  const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+                  window.scrollTo({ top: targetPercent * maxScroll, behavior: 'smooth' });
                 }}
                 className="group flex items-center gap-4 cursor-pointer text-right"
               >
@@ -346,260 +432,201 @@ export default function App() {
               </AnimatePresence>
             </section>
 
-            {/* Section 2 — Tower Introduction */}
-            <section id="specification" className="relative min-h-screen flex items-center justify-center p-8 md:p-12 my-[20vh]">
-              <div className="w-full max-w-6xl grid grid-cols-1 md:grid-cols-12 gap-8 md:gap-16 items-center">
+            {/* Section 2 — Tower Introduction (Sticky) */}
+            <div id="specification" className="relative w-full h-[180vh]">
+              <div className="sticky top-0 h-screen w-full flex items-center justify-center p-8 md:p-12 overflow-hidden">
                 <motion.div 
-                  initial={{ opacity: 0, x: -50 }}
-                  whileInView={{ opacity: 1, x: 0 }}
-                  viewport={{ once: false, margin: "-100px" }}
-                  transition={{ duration: 1, ease: "easeOut" }}
-                  className="md:col-span-6 flex flex-col gap-6"
+                  style={{ opacity: sec2Opacity, y: sec2Y }}
+                  className="w-full max-w-6xl grid grid-cols-1 md:grid-cols-12 gap-8 md:gap-16 items-center"
                 >
-                  <p className="font-title text-xs tracking-[0.3em] text-rust font-bold">INTRODUCTION</p>
-                  <h2 className="font-title text-4xl md:text-5xl lg:text-6xl text-navy font-bold leading-[1.15] tracking-tight">
-                    AN ICON<br />OF MID-CENTURY<br />REBIRTH
-                  </h2>
-                  <div className="w-24 h-[1px] bg-rust mt-2" />
-                </motion.div>
+                  <div className="md:col-span-6 flex flex-col gap-6">
+                    <p className="font-title text-xs tracking-[0.3em] text-rust font-bold">INTRODUCTION</p>
+                    <h2 className="font-title text-4xl md:text-5xl lg:text-6xl text-navy font-bold leading-[1.15] tracking-tight">
+                      AN ICON<br />OF MID-CENTURY<br />REBIRTH
+                    </h2>
+                    <div className="w-24 h-[1px] bg-rust mt-2" />
+                  </div>
 
-                <motion.div 
-                  initial={{ opacity: 0, y: 50 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: false, margin: "-100px" }}
-                  transition={{ duration: 1, delay: 0.2, ease: "easeOut" }}
-                  className="md:col-span-6 flex flex-col gap-8"
-                >
-                  <p className="font-serif text-lg md:text-xl text-navy/85 leading-relaxed italic">
-                    <span className="float-left text-6xl font-serif text-rust mr-4 mt-2 font-bold leading-3">T</span>
-                    okyo Tower stands as a striking symbol of Japan's post-war resilience. Built in 1958 during a period of massive economic growth, it rose as a beacon of modern technology, connecting a recovering nation to the digital age.
-                  </p>
+                  <div className="md:col-span-6 flex flex-col gap-8">
+                    <p className="font-serif text-lg md:text-xl text-navy/85 leading-relaxed italic">
+                      <span className="float-left text-6xl font-serif text-rust mr-4 mt-2 font-bold leading-3">T</span>
+                      okyo Tower stands as a striking symbol of Japan's post-war resilience. Built in 1958 during a period of massive economic growth, it rose as a beacon of modern technology, connecting a recovering nation to the digital age.
+                    </p>
 
-                  {/* Horizontal stat cards */}
-                  <div className="grid grid-cols-3 border-t border-b border-navy/15 py-6 mt-4 gap-4">
-                    <div>
-                      <p className="font-serif text-[10px] text-navy/40 italic">HEIGHT</p>
-                      <p className="font-title text-2xl font-bold text-navy mt-1">333 M</p>
-                    </div>
-                    <div>
-                      <p className="font-serif text-[10px] text-navy/40 italic">COMPLETED</p>
-                      <p className="font-title text-2xl font-bold text-navy mt-1">1958</p>
-                    </div>
-                    <div>
-                      <p className="font-serif text-[10px] text-navy/40 italic">STRUCTURAL TYPE</p>
-                      <p className="font-title text-xl font-bold text-navy mt-1.5 tracking-tight uppercase">Lattice</p>
+                    {/* Horizontal stat cards */}
+                    <div className="grid grid-cols-3 border-t border-b border-navy/15 py-6 mt-4 gap-4">
+                      <div>
+                        <p className="font-serif text-[10px] text-navy/40 italic">HEIGHT</p>
+                        <p className="font-title text-2xl font-bold text-navy mt-1">333 M</p>
+                      </div>
+                      <div>
+                        <p className="font-serif text-[10px] text-navy/40 italic">COMPLETED</p>
+                        <p className="font-title text-2xl font-bold text-navy mt-1">1958</p>
+                      </div>
+                      <div>
+                        <p className="font-serif text-[10px] text-navy/40 italic">STRUCTURAL TYPE</p>
+                        <p className="font-title text-xl font-bold text-navy mt-1.5 tracking-tight uppercase">Lattice</p>
+                      </div>
                     </div>
                   </div>
                 </motion.div>
               </div>
-            </section>
+            </div>
 
-            {/* Section 3 — Storytelling */}
-            <section id="origin" className="relative min-h-[120vh] flex flex-col justify-center overflow-hidden py-16">
-              {/* Massive Horizontal Scrolling Background Japanese Typography */}
-              <div className="absolute inset-y-0 left-0 right-0 flex items-center justify-center pointer-events-none opacity-[0.035] select-none whitespace-nowrap z-0">
-                <motion.h3 
-                  style={{ x: xTextSlide }}
-                  className="font-title text-[22vh] md:text-[30vh] font-black tracking-widest text-navy uppercase"
-                >
-                  東京タワー 昭和三十三年
-                </motion.h3>
-              </div>
-
-              <div className="w-full max-w-4xl mx-auto px-8 z-10">
-                <motion.div 
-                  initial={{ opacity: 0, y: 60 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: false, margin: "-100px" }}
-                  transition={{ duration: 1.2, ease: [0.16, 1, 0.3, 1] }}
-                  className="bg-[#FCFAF7]/95 backdrop-blur-[3px] border border-navy/10 p-8 md:p-16 shadow-lg relative"
-                >
-                  {/* Decorative vintage border lines */}
-                  <div className="absolute top-3 left-3 right-3 bottom-3 border border-navy/5 pointer-events-none" />
-                  
-                  <div className="flex justify-between items-center border-b border-navy/10 pb-6 mb-8">
-                    <span className="font-serif text-xs italic text-navy/40">CHAPTER 02 — THE ORIGIN</span>
-                    <span className="font-title text-[10px] tracking-widest text-rust font-bold">NARRATIVE</span>
-                  </div>
-
-                  <h3 className="font-serif text-2xl md:text-3xl font-semibold leading-relaxed text-navy mb-6">
-                    "From the embers of conflict, we forged a monument to peace."
-                  </h3>
-                  
-                  <div className="space-y-6 text-navy/75 font-serif text-base md:text-lg leading-relaxed">
-                    <p>
-                      In a powerful symbolic transition, a portion of the steel used to build Tokyo Tower was recycled from decommissioned American military tanks that had served in the Korean War. 
-                    </p>
-                    <p>
-                      This repurposing of war machines into a towering beacon of telecommunication stood as a physical testament to Japan's dedication to peace, cultural reconstruction, and forward-looking international collaboration in the mid-century era.
-                    </p>
-                  </div>
-
-                  <div className="mt-8 pt-6 border-t border-navy/10 flex items-center justify-between">
-                    <span className="font-title text-[9px] tracking-[0.2em] text-navy/40">SCRAP REUSE INITIATIVE</span>
-                    <span className="font-serif text-[10px] italic text-rust">Showa 33</span>
-                  </div>
-                </motion.div>
-              </div>
-            </section>
-
-            {/* Section 4 — Architectural Details */}
-            <section id="structure" className="relative min-h-screen flex items-center justify-center p-8 md:p-12 my-[20vh]">
-              <div className="w-full max-w-6xl grid grid-cols-1 md:grid-cols-12 gap-12 items-center">
-                
-                {/* Stats Panel (Left on Desktop) */}
-                <div className="md:col-span-5 order-2 md:order-1 grid grid-cols-1 gap-6">
-                  <motion.div 
-                    initial={{ opacity: 0, x: -30 }}
-                    whileInView={{ opacity: 1, x: 0 }}
-                    viewport={{ once: false, margin: "-100px" }}
-                    transition={{ duration: 0.8 }}
-                    className="border border-navy/10 p-6 bg-[#FCFAF7]/80"
+            {/* Section 3 — Storytelling (Sticky) */}
+            <div id="origin" className="relative w-full h-[180vh]">
+              <div className="sticky top-0 h-screen w-full flex flex-col justify-center overflow-hidden py-16">
+                {/* Massive Horizontal Scrolling Background Japanese Typography */}
+                <div className="absolute inset-y-0 left-0 right-0 flex items-center justify-center pointer-events-none opacity-[0.035] select-none whitespace-nowrap z-0">
+                  <motion.h3 
+                    style={{ x: xTextSlide }}
+                    className="font-title text-[22vh] md:text-[30vh] font-black tracking-widest text-navy uppercase"
                   >
-                    <span className="font-serif text-xs text-navy/40 italic">WEIGHT OPTIMIZATION</span>
-                    <h4 className="font-title text-2xl font-bold text-navy mt-2">4,000 TONNES</h4>
-                    <p className="font-serif text-sm text-navy/60 leading-relaxed mt-2">
-                      Through advanced structural lattice design, the tower weighs roughly 3,300 tonnes less than the Eiffel Tower, despite standing 9 meters taller.
-                    </p>
-                  </motion.div>
-
-                  <motion.div 
-                    initial={{ opacity: 0, x: -30 }}
-                    whileInView={{ opacity: 1, x: 0 }}
-                    viewport={{ once: false, margin: "-100px" }}
-                    transition={{ duration: 0.8, delay: 0.15 }}
-                    className="border border-navy/10 p-6 bg-[#FCFAF7]/80"
-                  >
-                    <span className="font-serif text-xs text-navy/40 italic">COLOR SCHEME</span>
-                    <h4 className="font-title text-2xl font-bold text-rust mt-2">INTERNATIONAL ORANGE</h4>
-                    <p className="font-serif text-sm text-navy/60 leading-relaxed mt-2">
-                      Coated in striking orange and white bands to comply with aviation safety laws. It requires 34,000 liters of paint per coat.
-                    </p>
-                  </motion.div>
-
-                  <motion.div 
-                    initial={{ opacity: 0, x: -30 }}
-                    whileInView={{ opacity: 1, x: 0 }}
-                    viewport={{ once: false, margin: "-100px" }}
-                    transition={{ duration: 0.8, delay: 0.3 }}
-                    className="border border-navy/10 p-6 bg-[#FCFAF7]/80"
-                  >
-                    <span className="font-serif text-xs text-navy/40 italic">MAINTENANCE</span>
-                    <h4 className="font-title text-2xl font-bold text-navy mt-2">HAND-PAINTED EVERY 5 YRS</h4>
-                    <p className="font-serif text-sm text-navy/60 leading-relaxed mt-2">
-                      The entire structure is painted completely by hand. The process takes a team of skilled painters an entire year to finish.
-                    </p>
-                  </motion.div>
+                    東京タワー 昭和三十三年
+                  </motion.h3>
                 </div>
 
-                {/* Narrative Panel (Right on Desktop) */}
-                <div className="md:col-span-7 order-1 md:order-2 flex flex-col gap-6">
-                  <motion.p 
-                    initial={{ opacity: 0 }}
-                    whileInView={{ opacity: 1 }}
-                    viewport={{ once: false }}
-                    className="font-title text-xs tracking-[0.3em] text-rust font-bold"
-                  >
-                    ENGINEERING & CRAFT
-                  </motion.p>
-                  <motion.h2 
-                    initial={{ opacity: 0, y: 30 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    viewport={{ once: false }}
-                    transition={{ duration: 1 }}
-                    className="font-title text-4xl md:text-5xl lg:text-6xl text-navy font-bold leading-[1.1] tracking-tight"
-                  >
-                    THE ANATOMY OF STEEL
-                  </motion.h2>
-                  <div className="w-24 h-[1px] bg-rust my-2" />
-                  <motion.p 
-                    initial={{ opacity: 0 }}
-                    whileInView={{ opacity: 1 }}
-                    viewport={{ once: false }}
-                    transition={{ delay: 0.2, duration: 1 }}
-                    className="font-serif text-lg text-navy/80 leading-relaxed"
-                  >
-                    Engineered by the legendary structural designer Tachū Naitō, Tokyo Tower was built to withstand the worst seismic events in Japan. Inspired by the Eiffel Tower, Naitō optimized the steel framework to minimize wind resistance, creating a robust yet incredibly graceful silhouette against the skyline.
-                  </motion.p>
-                </div>
-
-              </div>
-            </section>
-
-            {/* Section 5 — Observation Deck */}
-            <section id="observation" className="relative min-h-screen flex items-center justify-center p-8 md:p-12 my-[15vh]">
-              <div className="w-full max-w-4xl text-center flex flex-col items-center gap-6">
-                <motion.p 
-                  initial={{ opacity: 0 }}
-                  whileInView={{ opacity: 1 }}
-                  viewport={{ once: false }}
-                  className="font-title text-xs tracking-[0.3em] text-rust font-bold"
-                >
-                  DECK EXPERIENCE
-                </motion.p>
-                
-                <motion.div style={{ scale: textScale }} className="flex flex-col gap-4">
-                  <h2 className="font-title text-4xl md:text-6xl lg:text-7xl text-navy font-bold tracking-tight">
-                    THE PANORAMIC GAZE
-                  </h2>
-                  <p className="font-serif text-lg md:text-2xl text-rust italic tracking-wide">
-                    150m Main Deck / 250m Top Deck
-                  </p>
-                </motion.div>
-
-                <div className="w-16 h-[1px] bg-navy/25 my-4" />
-
-                <motion.p 
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: false }}
-                  transition={{ duration: 1 }}
-                  className="font-serif text-lg md:text-xl text-navy/80 leading-relaxed max-w-2xl"
-                >
-                  Perched high above the city, the observation platforms provide a spectacular 360-degree panorama of the sprawling metropolis. On clear mornings, the snow-covered peak of Mt. Fuji stands majestically on the western horizon, representing the eternal link between urban progress and natural beauty.
-                </motion.p>
-              </div>
-            </section>
-
-            {/* Section 6 — Skyline Experience */}
-            <section id="illumination" className="relative min-h-screen flex items-center justify-center p-8 md:p-12 my-[15vh]">
-              <div className="w-full max-w-6xl grid grid-cols-1 md:grid-cols-12 gap-8 md:gap-16 items-center">
-                
                 <motion.div 
-                  initial={{ opacity: 0, x: 50 }}
-                  whileInView={{ opacity: 1, x: 0 }}
-                  viewport={{ once: false }}
-                  transition={{ duration: 1 }}
-                  className="md:col-span-6 md:order-2 flex flex-col gap-6"
+                  style={{ opacity: sec3Opacity, y: sec3Y }}
+                  className="w-full max-w-4xl mx-auto px-8 z-10"
                 >
-                  <p className="font-title text-xs tracking-[0.3em] text-rust font-bold">ATMOSPHERE</p>
-                  <h2 className="font-title text-4xl md:text-5xl lg:text-6xl text-navy font-bold leading-tight">
-                    A BEACON IN THE METROPOLITAN NIGHT
-                  </h2>
-                  <div className="w-24 h-[1px] bg-rust mt-2" />
-                </motion.div>
+                  <div className="bg-[#FCFAF7]/95 backdrop-blur-[3px] border border-navy/10 p-8 md:p-16 shadow-lg relative">
+                    {/* Decorative vintage border lines */}
+                    <div className="absolute top-3 left-3 right-3 bottom-3 border border-navy/5 pointer-events-none" />
+                    
+                    <div className="flex justify-between items-center border-b border-navy/10 pb-6 mb-8">
+                      <span className="font-serif text-xs italic text-navy/40">CHAPTER 02 — THE ORIGIN</span>
+                      <span className="font-title text-[10px] tracking-widest text-rust font-bold">NARRATIVE</span>
+                    </div>
 
-                <motion.div 
-                  initial={{ opacity: 0, y: 40 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: false }}
-                  transition={{ duration: 1, delay: 0.2 }}
-                  className="md:col-span-6 md:order-1 flex flex-col gap-6"
-                >
-                  <p className="font-serif text-lg text-navy/80 leading-relaxed">
-                    As twilight fades, Tokyo Tower transforms into a vibrant sculpture of light. The tower features two distinct lighting systems: the warm orange "Landmark Light," which glows with amber intensity during winter, and the colorful "Diamond Veil," wrapping the lattice in patterns of ruby, sapphire, and emerald.
-                  </p>
-                  
-                  <div className="border-l-2 border-rust pl-6 py-2 italic font-serif text-navy/70 text-base">
-                    "A vibrant monument that captures the heartbeat of the capital, lighting up the sky and shifting colors to match the passing seasons."
+                    <h3 className="font-serif text-2xl md:text-3xl font-semibold leading-relaxed text-navy mb-6">
+                      "From the embers of conflict, we forged a monument to peace."
+                    </h3>
+                    
+                    <div className="space-y-6 text-navy/75 font-serif text-base md:text-lg leading-relaxed">
+                      <p>
+                        In a powerful symbolic transition, a portion of the steel used to build Tokyo Tower was recycled from decommissioned American military tanks that had served in the Korean War. 
+                      </p>
+                      <p>
+                        This repurposing of war machines into a towering beacon of telecommunication stood as a physical testament to Japan's dedication to peace, cultural reconstruction, and forward-looking international collaboration in the mid-century era.
+                      </p>
+                    </div>
+
+                    <div className="mt-8 pt-6 border-t border-navy/10 flex items-center justify-between">
+                      <span className="font-title text-[9px] tracking-[0.2em] text-navy/40">SCRAP REUSE INITIATIVE</span>
+                      <span className="font-serif text-[10px] italic text-rust">Showa 33</span>
+                    </div>
                   </div>
                 </motion.div>
-
               </div>
-            </section>
+            </div>
+
+            {/* Section 4 — Architectural Details (Sticky) */}
+            <div id="structure" className="relative w-full h-[180vh]">
+              <div className="sticky top-0 h-screen w-full flex items-center justify-center p-8 md:p-12 overflow-hidden">
+                <motion.div 
+                  style={{ opacity: sec4Opacity, y: sec4Y }}
+                  className="w-full max-w-6xl grid grid-cols-1 md:grid-cols-12 gap-12 items-center"
+                >
+                  {/* Stats Panel (Left on Desktop) */}
+                  <div className="md:col-span-5 order-2 md:order-1 grid grid-cols-1 gap-6">
+                    <div className="border border-navy/10 p-6 bg-[#FCFAF7]/80">
+                      <span className="font-serif text-xs text-navy/40 italic">WEIGHT OPTIMIZATION</span>
+                      <h4 className="font-title text-2xl font-bold text-navy mt-2">4,000 TONNES</h4>
+                      <p className="font-serif text-sm text-navy/60 leading-relaxed mt-2">
+                        Through advanced structural lattice design, the tower weighs roughly 3,300 tonnes less than the Eiffel Tower, despite standing 9 meters taller.
+                      </p>
+                    </div>
+
+                    <div className="border border-navy/10 p-6 bg-[#FCFAF7]/80">
+                      <span className="font-serif text-xs text-navy/40 italic">COLOR SCHEME</span>
+                      <h4 className="font-title text-2xl font-bold text-rust mt-2">INTERNATIONAL ORANGE</h4>
+                      <p className="font-serif text-sm text-navy/60 leading-relaxed mt-2">
+                        Coated in striking orange and white bands to comply with aviation safety laws. It requires 34,000 liters of paint per coat.
+                      </p>
+                    </div>
+
+                    <div className="border border-navy/10 p-6 bg-[#FCFAF7]/80">
+                      <span className="font-serif text-xs text-navy/40 italic">MAINTENANCE</span>
+                      <h4 className="font-title text-2xl font-bold text-navy mt-2">HAND-PAINTED EVERY 5 YRS</h4>
+                      <p className="font-serif text-sm text-navy/60 leading-relaxed mt-2">
+                        The entire structure is painted completely by hand. The process takes a team of skilled painters an entire year to finish.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Narrative Panel (Right on Desktop) */}
+                  <div className="md:col-span-7 order-1 md:order-2 flex flex-col gap-6">
+                    <p className="font-title text-xs tracking-[0.3em] text-rust font-bold">ENGINEERING & CRAFT</p>
+                    <h2 className="font-title text-4xl md:text-5xl lg:text-6xl text-navy font-bold leading-[1.1] tracking-tight">
+                      THE ANATOMY OF STEEL
+                    </h2>
+                    <div className="w-24 h-[1px] bg-rust my-2" />
+                    <p className="font-serif text-lg text-navy/80 leading-relaxed">
+                      Engineered by the legendary structural designer Tachū Naitō, Tokyo Tower was built to withstand the worst seismic events in Japan. Inspired by the Eiffel Tower, Naitō optimized the steel framework to minimize wind resistance, creating a robust yet incredibly graceful silhouette against the skyline.
+                    </p>
+                  </div>
+                </motion.div>
+              </div>
+            </div>
+
+            {/* Section 5 — Observation Deck (Sticky) */}
+            <div id="observation" className="relative w-full h-[180vh]">
+              <div className="sticky top-0 h-screen w-full flex items-center justify-center p-8 md:p-12 overflow-hidden">
+                <motion.div 
+                  style={{ opacity: sec5Opacity, y: sec5Y }}
+                  className="w-full max-w-4xl text-center flex flex-col items-center gap-6"
+                >
+                  <p className="font-title text-xs tracking-[0.3em] text-rust font-bold">DECK EXPERIENCE</p>
+                  
+                  <motion.div style={{ scale: textScale }} className="flex flex-col gap-4">
+                    <h2 className="font-title text-4xl md:text-6xl lg:text-7xl text-navy font-bold tracking-tight">
+                      THE PANORAMIC GAZE
+                    </h2>
+                    <p className="font-serif text-lg md:text-2xl text-rust italic tracking-wide">
+                      150m Main Deck / 250m Top Deck
+                    </p>
+                  </motion.div>
+
+                  <div className="w-16 h-[1px] bg-navy/25 my-4" />
+
+                  <p className="font-serif text-lg md:text-xl text-navy/80 leading-relaxed max-w-2xl">
+                    Perched high above the city, the observation platforms provide a spectacular 360-degree panorama of the sprawling metropolis. On clear mornings, the snow-covered peak of Mt. Fuji stands majestically on the western horizon, representing the eternal link between urban progress and natural beauty.
+                  </p>
+                </motion.div>
+              </div>
+            </div>
+
+            {/* Section 6 — Skyline Experience (Sticky) */}
+            <div id="illumination" className="relative w-full h-[180vh]">
+              <div className="sticky top-0 h-screen w-full flex items-center justify-center p-8 md:p-12 overflow-hidden">
+                <motion.div 
+                  style={{ opacity: sec6Opacity, y: sec6Y }}
+                  className="w-full max-w-6xl grid grid-cols-1 md:grid-cols-12 gap-8 md:gap-16 items-center"
+                >
+                  <div className="md:col-span-6 md:order-2 flex flex-col gap-6">
+                    <p className="font-title text-xs tracking-[0.3em] text-rust font-bold">ATMOSPHERE</p>
+                    <h2 className="font-title text-4xl md:text-5xl lg:text-6xl text-navy font-bold leading-tight">
+                      A BEACON IN THE METROPOLITAN NIGHT
+                    </h2>
+                    <div className="w-24 h-[1px] bg-rust mt-2" />
+                  </div>
+
+                  <div className="md:col-span-6 md:order-1 flex flex-col gap-6">
+                    <p className="font-serif text-lg text-navy/80 leading-relaxed">
+                      As twilight fades, Tokyo Tower transforms into a vibrant sculpture of light. The tower features two distinct lighting systems: the warm orange "Landmark Light," which glows with amber intensity during winter, and the colorful "Diamond Veil," wrapping the lattice in patterns of ruby, sapphire, and emerald.
+                    </p>
+                    
+                    <div className="border-l-2 border-rust pl-6 py-2 italic font-serif text-navy/70 text-base">
+                      "A vibrant monument that captures the heartbeat of the capital, lighting up the sky and shifting colors to match the passing seasons."
+                    </div>
+                  </div>
+                </motion.div>
+              </div>
+            </div>
 
             {/* Section 7 — Final Reveal */}
-            <section id="finale" className="relative h-screen flex flex-col justify-between items-center p-8 md:p-12">
+            <section id="finale" className="relative min-h-screen md:h-screen flex flex-col justify-between items-center p-8 md:p-12 gap-8">
               <div className="editorial-frame absolute inset-0 pointer-events-none" />
               
               <div className="w-full flex justify-between items-start pt-16 z-10 px-4 md:px-8">
@@ -608,21 +635,18 @@ export default function App() {
               </div>
 
               {/* Final Typography overlay */}
-              <div className="text-center z-10 flex flex-col items-center gap-4">
-                <motion.h1 
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  whileInView={{ opacity: 1, scale: 1 }}
-                  viewport={{ once: false }}
-                  transition={{ duration: 1.5 }}
-                  className="font-title text-7xl md:text-9xl tracking-[0.2em] font-bold text-navy"
-                >
+              <motion.div 
+                style={{ opacity: sec7Opacity, y: sec7Y }}
+                className="text-center z-10 flex flex-col items-center gap-4 my-auto"
+              >
+                <h1 className="font-title text-6xl md:text-8xl lg:text-9xl tracking-[0.2em] font-bold text-navy">
                   TOKYO
-                </motion.h1>
+                </h1>
                 <div className="w-12 h-[1px] bg-rust my-2" />
                 <p className="font-serif text-sm tracking-[0.3em] text-rust uppercase">
                   A Modern Tribute
                 </p>
-              </div>
+              </motion.div>
 
               {/* Vintage Credits Footer */}
               <div className="w-full grid grid-cols-1 md:grid-cols-3 gap-6 items-end pb-8 border-t border-navy/10 pt-6 z-10 px-4 md:px-8">
@@ -632,10 +656,10 @@ export default function App() {
                     Designed and built by Antigravity under Google DeepMind. Powered by pre-rendered canvas frame buffers.
                   </p>
                 </div>
-                <div className="flex justify-center">
+                <div className="flex justify-center pb-2">
                   <button 
                     onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                    className="font-title text-[10px] tracking-[0.3em] text-rust font-bold hover:text-navy transition-colors border border-rust/30 hover:border-navy/30 px-6 py-2 bg-cream"
+                    className="font-title text-[10px] tracking-[0.3em] text-rust font-bold hover:text-navy transition-colors border border-rust/30 hover:border-navy/30 px-6 py-2 bg-cream cursor-pointer pointer-events-auto"
                   >
                     RETURN TO COVERS
                   </button>
